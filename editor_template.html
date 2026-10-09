@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>__PAGE_TITLE__ - עורך עמוד</title>
+<style>
+  :root { --accent:#2b6cb0; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:Arial,"Segoe UI",sans-serif; background:#2b2b2b;
+         color:#eee; user-select:none; }
+  #toolbar { position:sticky; top:0; z-index:50; background:#1c1c1c;
+             padding:8px 12px; display:flex; gap:8px; align-items:center;
+             flex-wrap:wrap; border-bottom:1px solid #444; }
+  #toolbar button, #toolbar input, #toolbar select {
+      font-size:14px; padding:5px 10px; border-radius:6px; border:1px solid #555;
+      background:#333; color:#eee; cursor:pointer; }
+  #toolbar button.primary { background:var(--accent); border-color:var(--accent); }
+  #toolbar button:disabled { opacity:.4; cursor:default; }
+  #toolbar .sep { width:1px; height:22px; background:#555; margin:0 4px; }
+  #toolbar button.tg.on { background:var(--accent); border-color:var(--accent); }
+  #toolbar input[type=number] { width:62px; }
+  #toolbar label { font-size:13px; display:flex; align-items:center; gap:4px; }
+  #fontSize { width:60px; }
+  #zoom { width:110px; }
+  #hint { font-size:12px; color:#aaa; margin-inline-start:auto; }
+  #stage-wrap { overflow:auto; height:calc(100vh - 52px); }
+  #stage { position:relative; transform-origin:top right; margin:14px auto;
+           box-shadow:0 0 24px #000; }
+  #page-img { display:block; pointer-events:none; }
+  #paint { position:absolute; inset:0; pointer-events:none; }
+  body.paint-mode #paint { pointer-events:auto; cursor:crosshair; }
+  body.paint-mode .tbox { pointer-events:none; opacity:.55; }
+  #paintbar { display:none; gap:8px; align-items:center; }
+  body.paint-mode #paintbar { display:flex; }
+  .tbox { position:absolute; border:1px dashed transparent; cursor:move;
+          display:flex; align-items:center; justify-content:center; }
+  .tbox .txt { width:100%; direction:rtl; text-align:center; line-height:1.15;
+               font-family:Arial,"Segoe UI",sans-serif; font-weight:bold;
+               white-space:pre-wrap; word-break:break-word; outline:none;
+               cursor:inherit; }
+  .tbox:hover { border-color:#6aa8ff88; }
+  .tbox.sel { border-color:var(--accent); }
+  .tbox.sel .grip { display:block; }
+  .grip { display:none; position:absolute; width:12px; height:12px;
+          background:var(--accent); border:1px solid #fff; border-radius:3px;
+          left:-7px; bottom:-7px; cursor:nesw-resize; }
+  .tbox.editing { cursor:text; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <button id="undoBtn" title="ביטול (Ctrl+Z)" disabled>&#8630;</button>
+  <button id="redoBtn" title="חזרה (Ctrl+Y)" disabled>&#8631;</button>
+  <span class="sep"></span>
+  <button id="addBox" title="הוספת תיבת טקסט חדשה במרכז התצוגה">+ תיבה</button>
+  <button id="delBox" disabled>מחק</button>
+  <span class="sep"></span>
+  <label>גודל <input id="fontSize" type="number" min="6" max="120" step="1" disabled></label>
+  <button id="sizeMinus" disabled>-</button>
+  <button id="sizePlus" disabled>+</button>
+  <label>גופן <select id="fontFamily" disabled>
+    <option>Arial</option><option>David</option><option>FrankRuehl</option>
+    <option>Miriam</option><option>Gisha</option><option>Aharoni</option>
+    <option>Narkisim</option><option>Levenim MT</option><option>Segoe UI</option>
+    <option>Tahoma</option><option>Comic Sans MS</option>
+    <option value="__other__">אחר...</option>
+  </select></label>
+  <button id="loadFonts" title="טעינת רשימת הגופנים המותקנים במחשב">גופני המחשב</button>
+  <label>צבע <input id="fontColor" type="color" value="#000000" disabled></label>
+  <button id="alR" class="tg" data-al="right" title="יישור לימין" disabled>&#8676;</button>
+  <button id="alC" class="tg" data-al="center" title="מרכוז" disabled>&#8596;</button>
+  <button id="alL" class="tg" data-al="left" title="יישור לשמאל" disabled>&#8677;</button>
+  <button id="alJ" class="tg" data-al="justify" title="טור מיושר" disabled>&#8801;</button>
+  <span class="sep"></span>
+  <button id="boldBtn" class="tg" title="מודגש" disabled><b>B</b></button>
+  <button id="italBtn" class="tg" title="נטוי" disabled><i>I</i></button>
+  <button id="undBtn" class="tg" title="קו תחתון" disabled><u>U</u></button>
+  <span class="sep"></span>
+  <label title="מרווח בין שורות">שורות <input id="lineSp" type="number"
+      step="0.05" min="0.6" max="3" value="1.15" disabled></label>
+  <label title="מרווח בין תווים">תווים <input id="letSp" type="number"
+      step="0.5" min="-5" max="20" value="0" disabled></label>
+  <label title="מתיחה אופקית באחוזים">מתיחה <input id="stretch" type="number"
+      step="5" min="20" max="300" value="100" disabled></label>
+  <label title="הטיה אופקית במעלות">הטיה <input id="skewX" type="number"
+      step="1" min="-45" max="45" value="0" disabled></label>
+  <label title="סיבוב במעלות">סיבוב <input id="rotate" type="number"
+      step="1" min="-180" max="180" value="0" disabled></label>
+  <span class="sep"></span>
+  <label hidden><input id="boldChk" type="checkbox" checked disabled></label>
+  <label><input id="outline" type="checkbox" checked disabled> מתאר לבן</label>
+  <label><input id="fillChk" type="checkbox" disabled> מילוי</label>
+  <input id="fillColor" type="color" value="#ffffff" disabled title="צבע מילוי הבועה">
+  <span class="sep"></span>
+  <label>תצוגה <input id="zoom" type="range" min="15" max="150" value="40"></label>
+  <span class="sep"></span>
+  <button id="paintTgl" class="tg" title="מצב ציור לתיקוני רקע">צייר</button>
+  <span id="paintbar">
+    <button id="pTool_brush" class="tg pt on" data-tool="brush">מכחול</button>
+    <button id="pTool_erase" class="tg pt" data-tool="erase">מחק</button>
+    <button id="pTool_line" class="tg pt" data-tool="line">קו</button>
+    <button id="pTool_rect" class="tg pt" data-tool="rect">מלבן</button>
+    <button id="pTool_ellipse" class="tg pt" data-tool="ellipse">אליפסה</button>
+    <button id="pTool_pick" class="tg pt" data-tool="pick"
+            title="טפטפת - שואבת צבע מהעמוד">טפטפת</button>
+    <label>צבע <input id="pColor" type="color" value="#ffffff"></label>
+    <label>עובי <input id="pSize" type="number" min="1" max="200" value="14"></label>
+    <label><input id="pFill" type="checkbox"> מילוי</label>
+  </span>
+  <span class="sep"></span>
+  <button id="savePng" class="primary">שמור תמונה סופית</button>
+  <button id="saveProj">שמור פרויקט</button>
+  <span id="hint">גרירה מזיזה | פינה משנה גודל | לחיצה כפולה עורכת טקסט | חיצים מזיזים בעדינות</span>
+</div>
+<div id="stage-wrap"><div id="stage">
+  <img id="page-img" src="__PAGE_IMAGE__" alt="page">
+  <canvas id="paint"></canvas>
+</div></div>
+
+<script id="page-data" type="application/json">__PAGE_DATA__</script>
+<script>
+"use strict";
+let _errShown = false;
+window.onerror = (msg, srcUrl, line) => {
+  if (_errShown) return; _errShown = true;
+  alert("שגיאה בעורך: " + msg + "\n(שורה " + line + ")\n" +
+        "צלם את ההודעה הזו ושלח אותה כדי שנתקן.");
+};
+/* עורך תיבות טקסט לעמוד קומיקס מתורגם.
+   הנתונים חיים ב-boxes; העמוד הנקי הוא תמונת הרקע; השמירה מציירת את
+   שניהם לקנבס ברזולוציה המקורית המלאה. */
+const data = JSON.parse(document.getElementById("page-data").textContent);
+/* Paint-layer bindings are declared HERE, at the very top, because
+   serialize() reads them and serialize() runs during init(). Declaring them
+   further down left them in the temporal dead zone and threw
+   "Cannot access 'paint' before initialization", which killed every later
+   binding - the toolbar went dead. Same failure class as the history block;
+   the rule is now: every module-level binding is declared before any code
+   that can run at load time. */
+const paint = document.getElementById("paint");
+let pctx = null, painting = false, pStart = null, snapshot = null;
+let pTool = "brush";
+const stage = document.getElementById("stage");
+const img = document.getElementById("page-img");
+const boxes = data.boxes.map(b => ({...b}));
+let sel = null, scale = 0.4;
+
+
+function fontStack(name) { return '"' + name + '", Arial, sans-serif'; }
+
+function familyCandidates(raw) {
+  /* User-typed font names arrive as FILE names ("AmaticSC-Bold.ttf") while
+     the browser matches FAMILY names ("Amatic SC") - a real, reported
+     failure. Derive every plausible family name: strip the extension,
+     peel weight/style suffixes (remembering they imply bold/italic), and
+     split glued CamelCase words. */
+  let bold = false, italic = false;
+  let name = String(raw || "").trim()
+      .replace(/\.(ttf|otf|woff2?|ttc|fon)$/i, "");
+  let base = name;
+  for (let i = 0; i < 3; i++) {
+    base = base.replace(
+      /[-_ ]+(extra ?bold|semi ?bold|demi ?bold|bold ?italic|bold|black|heavy|medium|regular|book|extra ?light|light|thin|italic|oblique)$/i,
+      m => { if (/bold|black|heavy/i.test(m)) bold = true;
+             if (/italic|oblique/i.test(m)) italic = true;
+             return ""; }).trim();
+  }
+  const camel = s => s
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
+  const dehyph = s => s.replace(/[-_]+/g, " ");
+  const out = [];
+  for (const c of [String(raw || "").trim(), name, base,
+                   camel(base), camel(name),
+                   dehyph(base), dehyph(name), camel(dehyph(base))]) {
+    const t = c.replace(/\s+/g, " ").trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return { candidates: out, bold, italic };
+}
+
+function resolveFont(raw) {
+  const info = familyCandidates(raw);
+  for (const c of info.candidates)
+    if (fontAvailable(c)) return { family: c, bold: info.bold };
+  return { family: null, tried: info.candidates };
+}
+
+function fontAvailable(name) {
+  /* Measurement probe: a font is "available" only if text measured with it
+     differs from BOTH generic fallbacks. document.fonts.check() gave false
+     answers for installed system fonts (real user report), measuring does
+     not lie. */
+  const ctx = document.createElement("canvas").getContext("2d");
+  const probe = "אבגד שלום ABCmw01";
+  const w = f => { ctx.font = "40px " + f; return ctx.measureText(probe).width; };
+  return w('"' + name + '", monospace') !== w("monospace")
+      || w('"' + name + '", serif') !== w("serif");
+}
+
+function fitFont(text, w, h, font) {
+  /* התאמת גודל התחלתית: חיפוש בינארי על קנבס מדידה, עוטף מילים כמו
+     בציור הסופי - כך התצוגה והקובץ הסופי מתנהגים אותו דבר. */
+  const ctx = document.createElement("canvas").getContext("2d");
+  const words = String(text).split(/\s+/).filter(Boolean);
+  if (!words.length) return 22;
+  let lo = 6, hi = 90, best = 6;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    ctx.font = mid + "px " + fontStack(font || "Arial");
+    let lines = 1, cur = "";
+    for (const wd of words) {
+      const t = cur ? cur + " " + wd : wd;
+      if (ctx.measureText(t).width <= w - 6) cur = t;
+      else { lines++; cur = wd; }
+    }
+    if (lines * mid * 1.15 <= h && ctx.measureText(
+        words.reduce((a, b) => a.length > b.length ? a : b)).width <= w) {
+      best = mid; lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return Math.max(8, best);
+}
+
+function makeBoxEl(b, i) {
+  const el = document.createElement("div");
+  el.className = "tbox"; el.dataset.i = i;
+  const txt = document.createElement("div");
+  txt.className = "txt"; txt.textContent = b.text;
+  const grip = document.createElement("div");
+  grip.className = "grip";
+  el.appendChild(txt); el.appendChild(grip);
+  stage.appendChild(el);
+  b.el = el; b.txtEl = txt;
+  syncBox(b);
+  return el;
+}
+
+function syncBox(b) {
+  b.el.style.left = b.x + "px";
+  b.el.style.top = b.y + "px";
+  b.el.style.width = b.w + "px";
+  b.el.style.height = b.h + "px";
+  b.txtEl.style.fontSize = b.size + "px";
+  b.txtEl.style.fontFamily = fontStack(b.font || "Arial");
+  b.txtEl.style.fontWeight = b.bold ? "bold" : "normal";
+  b.txtEl.style.fontStyle = b.italic ? "italic" : "normal";
+  b.txtEl.style.textDecoration = b.underline ? "underline" : "none";
+  b.txtEl.style.textAlign = b.align || "center";
+  b.txtEl.style.lineHeight = (b.lineSp || 1.15);
+  b.txtEl.style.letterSpacing = (b.letSp || 0) + "px";
+  b.el.style.transform = "rotate(" + (b.rotate || 0) + "deg) skewX("
+      + (-(b.skewX || 0)) + "deg) scaleX(" + ((b.stretch || 100) / 100) + ")";
+  b.el.style.transformOrigin = "center center";
+  b.el.style.background = b.fill || "transparent";
+  b.el.style.borderRadius = b.fill ? "10px" : "0";
+  b.txtEl.style.color = b.color;
+  b.txtEl.style.textShadow = b.outline
+    ? "0 0 3px #fff,0 0 3px #fff,1px 1px 0 #fff,-1px -1px 0 #fff,1px -1px 0 #fff,-1px 1px 0 #fff"
+    : "none";
+}
+
+function select(b) {
+  if (sel) sel.el.classList.remove("sel");
+  sel = b;
+  const on = !!b;
+  for (const id of ["delBox","fontSize","sizeMinus","sizePlus","fontColor",
+                    "outline","fontFamily","boldChk","fillChk","fillColor",
+                    "alR","alC","alL","alJ","boldBtn","italBtn","undBtn",
+                    "lineSp","letSp","stretch","skewX","rotate"])
+    document.getElementById(id).disabled = !on;
+  if (b) {
+    b.el.classList.add("sel");
+    document.getElementById("fontSize").value = b.size;
+    const fsel = document.getElementById("fontFamily");
+    if (![...fsel.options].some(o => o.value === b.font)) {
+      const o = document.createElement("option");
+      o.value = o.textContent = b.font; fsel.insertBefore(o, fsel.lastElementChild);
+    }
+    fsel.value = b.font;
+    document.getElementById("fontColor").value = b.color;
+    document.getElementById("outline").checked = b.outline;
+    document.getElementById("boldChk").checked = !!b.bold;
+    document.getElementById("fillChk").checked = !!b.fill;
+    document.getElementById("fillColor").value = b.fill || "#ffffff";
+    document.querySelectorAll("#toolbar button.tg[data-al]").forEach(btn =>
+        btn.classList.toggle("on", btn.dataset.al === (b.align || "center")));
+    document.getElementById("boldBtn").classList.toggle("on", !!b.bold);
+    document.getElementById("italBtn").classList.toggle("on", !!b.italic);
+    document.getElementById("undBtn").classList.toggle("on", !!b.underline);
+    document.getElementById("lineSp").value = b.lineSp || 1.15;
+    document.getElementById("letSp").value = b.letSp || 0;
+    document.getElementById("stretch").value = b.stretch || 100;
+    document.getElementById("skewX").value = b.skewX || 0;
+    document.getElementById("rotate").value = b.rotate || 0;
+  }
+}
+
+/* --------------------- ביטול / חזרה --------------------- */
+function serialize() {
+  return { boxes: boxes.map(({el, txtEl, ...rest}) => (
+             { ...rest, text: txtEl ? txtEl.textContent : rest.text })),
+           paint: pctx ? paint.toDataURL("image/png") : null };
+}
+let undoStack = [], redoStack = [], current = null;
+function record() {
+  undoStack.push(current); redoStack.length = 0;
+  current = JSON.stringify(serialize());
+  if (undoStack.length > 100) undoStack.shift();
+  histButtons();
+}
+function restore(stateJson) {
+  const st = JSON.parse(stateJson);
+  document.querySelectorAll("#stage .tbox").forEach(el => el.remove());
+  boxes.length = 0;
+  (st.boxes || []).forEach((b, i) => { boxes.push(b); makeBoxEl(b, i); });
+  if (pctx) {
+    pctx.clearRect(0, 0, paint.width, paint.height);
+    if (st.paint) { const im = new Image();
+      im.onload = () => pctx.drawImage(im, 0, 0); im.src = st.paint; }
+  }
+  sel = null; select(null);
+}
+function histButtons() {
+  document.getElementById("undoBtn").disabled =
+      undoStack.length === 0 || undoStack[undoStack.length - 1] === null;
+  document.getElementById("redoBtn").disabled = redoStack.length === 0;
+}
+function doUndo() {
+  const prev = undoStack.pop();
+  if (prev === undefined || prev === null) { histButtons(); return; }
+  redoStack.push(current); current = prev; restore(prev); histButtons();
+}
+function doRedo() {
+  const nxt = redoStack.pop();
+  if (nxt === undefined) return;
+  undoStack.push(current); current = nxt; restore(nxt); histButtons();
+}
+document.getElementById("undoBtn").onclick = doUndo;
+document.getElementById("redoBtn").onclick = doRedo;
+
+/* ------------------------- אתחול ------------------------- */
+let inited = false;
+function init() {
+  /* ONE-SHOT. The load event and the img.complete check can BOTH fire for
+     an embedded data-URL image; without this guard every box was built
+     TWICE - two identical stacked boxes, dragging moved only the top one
+     (a real, user-reported failure). */
+  if (inited) return;
+  inited = true;
+  stage.style.width = img.naturalWidth + "px";
+  stage.style.height = img.naturalHeight + "px";
+  boxes.forEach((b, i) => {
+    if (!b.font) b.font = "Arial";
+    if (b.bold === undefined) b.bold = true;
+    if (b.italic === undefined) b.italic = false;
+    if (b.underline === undefined) b.underline = false;
+    if (!b.align) b.align = "center";
+    if (!b.lineSp) b.lineSp = 1.15;
+    if (b.letSp === undefined) b.letSp = 0;
+    if (!b.stretch) b.stretch = 100;
+    if (b.skewX === undefined) b.skewX = 0;
+    if (b.rotate === undefined) b.rotate = 0;
+    if (b.fill === undefined) b.fill = null;
+    if (!b.size) b.size = fitFont(b.text, b.w, b.h, b.font);
+    if (!b.color) b.color = "#000000";
+    if (b.outline === undefined) b.outline = true;
+    makeBoxEl(b, i);
+  });
+  initPaint();
+  applyZoom(parseInt(document.getElementById("zoom").value, 10));
+  current = JSON.stringify(serialize());
+  histButtons();
+}
+img.addEventListener("load", init);
+if (img.complete && img.naturalWidth) init();
+
+function applyZoom(pct) {
+  scale = pct / 100;
+  stage.style.transform = "scale(" + scale + ")";
+  stage.style.marginBottom = (img.naturalHeight * (scale - 1)) + "px";
+}
+document.getElementById("zoom").addEventListener("input",
+  e => applyZoom(parseInt(e.target.value, 10)));
+
+/* --------------------- גרירה ושינוי גודל --------------------- */
+let drag = null;
+stage.addEventListener("mousedown", e => {
+  const el = e.target.closest(".tbox");
+  if (!el) { select(null); return; }
+  const b = boxes[+el.dataset.i];
+  select(b);
+  if (b.el.classList.contains("editing")) return;
+  drag = { b, mode: e.target.classList.contains("grip") ? "resize" : "move",
+           sx: e.clientX, sy: e.clientY, x: b.x, y: b.y, w: b.w, h: b.h };
+  e.preventDefault();
+});
+window.addEventListener("mousemove", e => {
+  if (!drag) return;
+  const dx = (e.clientX - drag.sx) / scale, dy = (e.clientY - drag.sy) / scale;
+  if (drag.mode === "move") { drag.b.x = Math.round(drag.x + dx); drag.b.y = Math.round(drag.y + dy); }
+  else { drag.b.w = Math.max(30, Math.round(drag.w - dx));
+         drag.b.h = Math.max(20, Math.round(drag.h + dy)); 
+         drag.b.x = Math.round(drag.x + Math.min(dx, drag.w - 30)); }
+  syncBox(drag.b);
+});
+window.addEventListener("mouseup", () => {
+  if (drag) record();
+  drag = null;
+});
+
+/* --------------------- עריכת טקסט --------------------- */
+stage.addEventListener("dblclick", e => {
+  const el = e.target.closest(".tbox");
+  if (!el) return;
+  const b = boxes[+el.dataset.i];
+  el.classList.add("editing");
+  b.txtEl.contentEditable = "true";
+  b.txtEl.focus();
+});
+stage.addEventListener("focusout", e => {
+  const el = e.target.closest ? e.target.closest(".tbox") : null;
+  if (!el) return;
+  const b = boxes[+el.dataset.i];
+  if (b.text !== b.txtEl.textContent) { b.text = b.txtEl.textContent; record(); }
+  b.txtEl.contentEditable = "false";
+  el.classList.remove("editing");
+}, true);
+
+/* --------------------- מקלדת --------------------- */
+let nudgeTimer = null;
+function scheduleNudgeRecord() {
+  clearTimeout(nudgeTimer);
+  nudgeTimer = setTimeout(record, 400);
+}
+window.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && ["z","y"].includes(e.key.toLowerCase())
+      && (!sel || !sel.el.classList.contains("editing"))) {
+    e.preventDefault();
+    e.key.toLowerCase() === "y" || e.shiftKey ? doRedo() : doUndo();
+    return;
+  }
+  if (!sel || sel.el.classList.contains("editing")) return;
+  const step = e.shiftKey ? 10 : 1;
+  const k = e.key;
+  if (k === "ArrowLeft") sel.x -= step;
+  else if (k === "ArrowRight") sel.x += step;
+  else if (k === "ArrowUp") sel.y -= step;
+  else if (k === "ArrowDown") sel.y += step;
+  else if (k === "Delete") { removeSelected(); return; }
+  else if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "z") {
+    e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
+  else if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "y") {
+    e.preventDefault(); doRedo(); return; }
+  else return;
+  e.preventDefault(); syncBox(sel); scheduleNudgeRecord();
+});
+
+/* --------------------- כפתורי סרגל --------------------- */
+function removeSelected() {
+  if (!sel) return;
+  sel.el.remove();
+  boxes.splice(boxes.indexOf(sel), 1);
+  stage.querySelectorAll(".tbox").forEach((el, i) => el.dataset.i = i);
+  select(null); record();
+}
+document.getElementById("delBox").onclick = removeSelected;
+document.getElementById("addBox").onclick = () => {
+  const wrap = document.getElementById("stage-wrap");
+  const b = { x: Math.round((wrap.scrollLeft + wrap.clientWidth / 2) / scale) - 150,
+              y: Math.round((wrap.scrollTop + wrap.clientHeight / 2) / scale) - 40,
+              w: 300, h: 90, text: "טקסט חדש", size: 26,
+              color: "#000000", outline: true,
+              font: (sel && sel.font) || "Arial" };
+  boxes.push(b);
+  makeBoxEl(b, boxes.length - 1);
+  select(b); record();
+};
+document.getElementById("fontSize").oninput = e => {
+  if (sel) { sel.size = Math.max(6, +e.target.value || 6); syncBox(sel);
+             scheduleNudgeRecord(); } };
+document.getElementById("sizeMinus").onclick = () => {
+  if (sel) { sel.size = Math.max(6, sel.size - 1);
+             document.getElementById("fontSize").value = sel.size; syncBox(sel); } };
+document.getElementById("sizePlus").onclick = () => {
+  if (sel) { sel.size += 1;
+             document.getElementById("fontSize").value = sel.size; syncBox(sel); } };
+document.getElementById("fontFamily").onchange = e => {
+  if (!sel) return;
+  let f = e.target.value;
+  if (f === "__other__") {
+    f = (prompt("שם הגופן באנגלית, כפי שמופיע בתיקיית הגופנים של חלונות\n" +
+                "(למשל: David, FrankRuehl, Secret Of The Vikings):",
+                sel.font) || sel.font).trim();
+    if (![...e.target.options].some(o => o.value === f)) {
+      const o = document.createElement("option");
+      o.value = o.textContent = f;
+      e.target.insertBefore(o, e.target.lastElementChild);
+    }
+    e.target.value = f;
+  }
+  const res = resolveFont(f);
+  if (res.family) f = res.family;          // שם משפחה שזוהה - עדיף
+  if (res.bold) {                          // סיומת משקל בשם מדליקה הדגשה
+    sel.bold = true;
+    document.getElementById("boldChk").checked = true;
+  }
+  addFontOption(e.target, f);
+  e.target.value = f;
+  /* ALWAYS apply. The availability probe is a HINT, not a gate: it produced
+     false negatives for genuinely installed fonts and blocked the user from
+     using them (real report). Applying lets the eye decide - the wrong font
+     is visible instantly and costs one more click to change. */
+  sel.font = f;
+  syncBox(sel); record();
+};
+
+function addFontOption(selectEl, name) {
+  if ([...selectEl.options].some(o => o.value === name)) return;
+  const o = document.createElement("option");
+  o.value = o.textContent = name;
+  selectEl.insertBefore(o, selectEl.lastElementChild);
+}
+
+document.getElementById("loadFonts").onclick = async () => {
+  const selectEl = document.getElementById("fontFamily");
+  if (!window.queryLocalFonts) {
+    alert("הדפדפן הזה לא תומך בקריאת רשימת הגופנים.\n" +
+          "פתח את קובץ העריכה בכרום או באדג', או בחר 'אחר...' " +
+          "והקלד את שם המשפחה.");
+    return;
+  }
+  try {
+    const fonts = await window.queryLocalFonts();
+    const fams = [...new Set(fonts.map(f => f.family))].sort();
+    for (const fam of fams) addFontOption(selectEl, fam);
+    selectEl.disabled = false;
+    alert("נטענו " + fams.length + " גופנים מהמחשב. הם ברשימה עכשיו.");
+  } catch (err) {
+    alert("טעינת הגופנים לא אושרה: " + err.message);
+  }
+};
+document.getElementById("fontColor").oninput = e => {
+  if (sel) { sel.color = e.target.value; syncBox(sel); record(); } };
+document.getElementById("outline").onchange = e => {
+  if (sel) { sel.outline = e.target.checked; syncBox(sel); record(); } };
+document.querySelectorAll("#toolbar button.tg[data-al]").forEach(btn => {
+  btn.onclick = () => {
+    if (!sel) return;
+    sel.align = btn.dataset.al;
+    document.querySelectorAll("#toolbar button.tg[data-al]").forEach(o =>
+        o.classList.toggle("on", o === btn));
+    syncBox(sel); record();
+  };
+});
+function toggleStyle(id, prop) {
+  document.getElementById(id).onclick = () => {
+    if (!sel) return;
+    sel[prop] = !sel[prop];
+    document.getElementById(id).classList.toggle("on", !!sel[prop]);
+    syncBox(sel); record();
+  };
+}
+toggleStyle("boldBtn", "bold");
+toggleStyle("italBtn", "italic");
+toggleStyle("undBtn", "underline");
+for (const [id, prop, mn, mx] of [["lineSp","lineSp",0.6,3],
+                                  ["letSp","letSp",-5,20],
+                                  ["stretch","stretch",20,300],
+                                  ["skewX","skewX",-45,45],
+                                  ["rotate","rotate",-180,180]]) {
+  document.getElementById(id).oninput = e => {
+    if (!sel) return;
+    const v = parseFloat(e.target.value);
+    if (isNaN(v)) return;
+    sel[prop] = Math.min(mx, Math.max(mn, v));
+    syncBox(sel); scheduleNudgeRecord();
+  };
+}
+document.getElementById("boldChk").onchange = e => {
+  if (sel) { sel.bold = e.target.checked; syncBox(sel); record(); } };
+document.getElementById("fillChk").onchange = e => {
+  if (!sel) return;
+  sel.fill = e.target.checked
+    ? document.getElementById("fillColor").value : null;
+  syncBox(sel); record();
+};
+document.getElementById("fillColor").oninput = e => {
+  if (sel && document.getElementById("fillChk").checked) {
+    sel.fill = e.target.value; syncBox(sel); record(); } };
+
+/* --------------------- מצב ציור --------------------- */
+/* A raster layer between the page image and the text boxes. Purpose-built
+   for the real need: painting over cleaning residue and patching artwork,
+   with an eyedropper so the patch color comes FROM the page instead of
+   being guessed. Strokes live on their own canvas, so text stays editable
+   and the layer is composited at export time. */
+
+function initPaint() {
+  paint.width = img.naturalWidth;
+  paint.height = img.naturalHeight;
+  paint.style.width = img.naturalWidth + "px";
+  paint.style.height = img.naturalHeight + "px";
+  pctx = paint.getContext("2d", { willReadFrequently: true });
+  if (data.paint) {                       // restored from a saved project
+    const im = new Image();
+    im.onload = () => pctx.drawImage(im, 0, 0);
+    im.src = data.paint;
+  }
+}
+
+function paintPos(e) {
+  const r = paint.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
+}
+
+function strokeStyleFor() {
+  pctx.lineCap = "round"; pctx.lineJoin = "round";
+  pctx.lineWidth = Math.max(1, +document.getElementById("pSize").value || 1);
+  pctx.strokeStyle = pctx.fillStyle = document.getElementById("pColor").value;
+  pctx.globalCompositeOperation =
+      pTool === "erase" ? "destination-out" : "source-over";
+}
+
+paint.addEventListener("mousedown", e => {
+  if (!document.body.classList.contains("paint-mode")) return;
+  const p = paintPos(e);
+  if (pTool === "pick") {                 // eyedropper: sample the composite
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const cx = c.getContext("2d");
+    cx.drawImage(img, 0, 0); cx.drawImage(paint, 0, 0);
+    const d = cx.getImageData(Math.round(p.x), Math.round(p.y), 1, 1).data;
+    const hex = "#" + [d[0], d[1], d[2]].map(
+        v => v.toString(16).padStart(2, "0")).join("");
+    document.getElementById("pColor").value = hex;
+    return;
+  }
+  painting = true; pStart = p;
+  snapshot = pctx.getImageData(0, 0, paint.width, paint.height);
+  strokeStyleFor();
+  if (pTool === "brush" || pTool === "erase") {
+    pctx.beginPath(); pctx.moveTo(p.x, p.y); pctx.lineTo(p.x + 0.01, p.y);
+    pctx.stroke();
+  }
+  e.preventDefault();
+});
+
+paint.addEventListener("mousemove", e => {
+  if (!painting) return;
+  const p = paintPos(e);
+  strokeStyleFor();
+  if (pTool === "brush" || pTool === "erase") {
+    pctx.lineTo(p.x, p.y); pctx.stroke();
+    return;
+  }
+  pctx.putImageData(snapshot, 0, 0);      // live preview for shape tools
+  strokeStyleFor();
+  const fill = document.getElementById("pFill").checked;
+  pctx.beginPath();
+  if (pTool === "line") { pctx.moveTo(pStart.x, pStart.y); pctx.lineTo(p.x, p.y); }
+  else if (pTool === "rect")
+    pctx.rect(pStart.x, pStart.y, p.x - pStart.x, p.y - pStart.y);
+  else
+    pctx.ellipse((pStart.x + p.x) / 2, (pStart.y + p.y) / 2,
+                 Math.abs(p.x - pStart.x) / 2, Math.abs(p.y - pStart.y) / 2,
+                 0, 0, Math.PI * 2);
+  fill ? pctx.fill() : pctx.stroke();
+});
+
+window.addEventListener("mouseup", () => {
+  if (!painting) return;
+  painting = false; snapshot = null;
+  pctx.globalCompositeOperation = "source-over";
+  record();                                // strokes join undo history
+});
+
+document.getElementById("paintTgl").onclick = () => {
+  const on = document.body.classList.toggle("paint-mode");
+  document.getElementById("paintTgl").classList.toggle("on", on);
+  if (on) select(null);
+};
+document.querySelectorAll("#paintbar button.pt").forEach(btn => {
+  btn.onclick = () => {
+    pTool = btn.dataset.tool;
+    document.querySelectorAll("#paintbar button.pt").forEach(
+        o => o.classList.toggle("on", o === btn));
+  };
+});
+
+/* --------------------- שמירת תמונה סופית --------------------- */
+function wrapLines(ctx, text, maxW) {
+  const words = String(text).split(/\s+/).filter(Boolean);
+  const lines = []; let cur = "";
+  for (const wd of words) {
+    const t = cur ? cur + " " + wd : wd;
+    if (ctx.measureText(t).width <= maxW || !cur) cur = t;
+    else { lines.push(cur); cur = wd; }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+document.getElementById("savePng").onclick = () => {
+  const cv = document.createElement("canvas");
+  cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+  const ctx = cv.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+  if (pctx) ctx.drawImage(paint, 0, 0);   // paint layer sits under the text
+  ctx.textBaseline = "middle"; ctx.direction = "rtl";
+  for (const b of boxes) {
+    const t = b.txtEl ? b.txtEl.textContent : b.text;
+    if (b.fill) {
+      ctx.fillStyle = b.fill;
+      if (ctx.roundRect) {
+        ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 10); ctx.fill();
+      } else ctx.fillRect(b.x, b.y, b.w, b.h);
+    }
+    ctx.font = (b.italic ? "italic " : "") + (b.bold ? "bold " : "")
+               + b.size + "px " + fontStack(b.font || "Arial");
+    const rot = (b.rotate || 0) * Math.PI / 180;
+    const skw = -(b.skewX || 0) * Math.PI / 180;
+    const sx = (b.stretch || 100) / 100;
+    const needXf = rot || skw || sx !== 1;
+    if (needXf) {
+      const cx0 = b.x + b.w / 2, cy0 = b.y + b.h / 2;
+      ctx.save();
+      ctx.translate(cx0, cy0);
+      ctx.rotate(rot);
+      ctx.transform(1, 0, Math.tan(skw), 1, 0, 0);
+      ctx.scale(sx, 1);
+      ctx.translate(-cx0, -cy0);
+    }
+    const lines = wrapLines(ctx, t, b.w - 6);
+    const lh = b.size * (b.lineSp || 1.15);
+    const y0 = b.y + b.h / 2 - lh * (lines.length - 1) / 2;
+    const al = b.align || "center";
+    ctx.textAlign = al === "left" ? "left"
+                  : al === "right" ? "right" : "center";
+    if (ctx.letterSpacing !== undefined)
+      ctx.letterSpacing = (b.letSp || 0) + "px";
+    lines.forEach((ln, i) => {
+      const x = al === "left" ? b.x + 3
+              : al === "right" ? b.x + b.w - 3
+              : b.x + b.w / 2;
+      const y = y0 + i * lh;
+      if (b.outline) {
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = "#ffffff"; ctx.lineWidth = Math.max(2, b.size / 8);
+        ctx.strokeText(ln, x, y);
+      }
+      ctx.fillStyle = b.color;
+      ctx.fillText(ln, x, y);
+      if (b.underline) {
+        const wpx = ctx.measureText(ln).width;
+        const ux = al === "left" ? x : al === "right" ? x - wpx : x - wpx / 2;
+        ctx.fillRect(ux, y + b.size * 0.42,
+                     wpx, Math.max(1, Math.round(b.size / 14)));
+      }
+    });
+    if (needXf) ctx.restore();
+  }
+  const a = document.createElement("a");
+  a.download = data.page_name + ".png";
+  a.href = cv.toDataURL("image/png");
+  a.click();
+};
+
+/* --------------------- שמירת פרויקט --------------------- */
+document.getElementById("saveProj").onclick = () => {
+  const st = serialize();
+  const payload = { ...data, boxes: st.boxes, paint: st.paint };
+  const json = JSON.stringify(payload).replace(/<\//g, "<\\/");
+  const doc = document.documentElement.cloneNode(true);
+  doc.querySelector("#page-data").textContent = json;
+  doc.querySelectorAll("#stage .tbox").forEach(el => el.remove());
+  const html = "<!DOCTYPE html>\n" + doc.outerHTML;
+  const a = document.createElement("a");
+  a.download = data.page_name + ".editor.html";
+  a.href = URL.createObjectURL(new Blob([html], {type: "text/html"}));
+  a.click();
+};
+</script>
+</body>
+</html>
